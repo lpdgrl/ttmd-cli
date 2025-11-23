@@ -4,7 +4,7 @@
 
 TTMD-CLI парсит исходники (.hpp или .cpp) и выдергивает комментарии начинающиеся с ключевой фразы и заносит в TODO.MD который лежит в корне репозитория. Если файл TODO.MD не создан, то он будет создан. 
 
-Обычно для TODO в исходниках использую нечто подобное -  "// TODO:". 
+Обычно для TODO в исходниках используют нечто подобное -  "// TODO:". 
 
 ## Как собрать и запустить
 
@@ -38,15 +38,19 @@ cmake --build .
 Пример запуска с ключевой фразой по умолчанию:
 ```shell
     $HOME/Project/ttmd/build/ttmd-cli -d $HOME/Project/ttmd/ -hpp include -cpp src
+    or 
+    ./ttmd-cli -d $HOME/Project/ttmd/ -hpp include -cpp src
 ```
 
 Пример запуска с альтернативной ключевой фразой:
 ```shell
     $HOME/Project/ttmd/build/ttmd-cli -d $HOME/Project/ttmd/ -hpp include -cpp src -k "// todo: "
+    or
+    ./ttmd-cli -d $HOME/Project/ttmd/ -hpp include -cpp src -k "// todo: "
 ```
 
 ##  Сообщить о проблеме
-Проект пока в сыром состоянии. Могут быть баги или ошибки. 
+Проект пока в сыром состоянии. Могут быть баги или ошибки. Работоспособность на Windows или MacOS не проверялась.
 
 Если вы нашли баг или хотите предложить улучшение — пожалуйста, создайте Issue:
 https://github.com/lpdgrl/ttmd-cli/issues
