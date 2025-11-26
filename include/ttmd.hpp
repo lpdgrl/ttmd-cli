@@ -9,6 +9,9 @@
 #include <unordered_map>
 #include <chrono>
 #include <ctime>
+#include <array>
+#include <vector>
+#include <unordered_set>
 
 using ResultParseCMD = std::unordered_map<std::string, std::string>;
 
@@ -23,7 +26,6 @@ ResultParseCMD ParseComandLine(int argc, char** argv);
 
 class TTMD {
 public:
-    TTMD() = delete;
     TTMD(const TTMD& other) = delete;
     TTMD(TTMD&& other) = delete;
 
@@ -31,13 +33,22 @@ public:
 
     void Parse();
     void WriteTODOFile() const;
-    void SetKeyWordParsed(std::string_view);
+    void SetKeyWordParsed(std::string_view) noexcept;
+    
 
 private:
+    std::uint32_t CalcCRCFile(const char* buffer, size_t length, std::uint32_t);
+    std::uint32_t CalcCRC32(const char* buffer, size_t length, std::uint32_t crc_value = 0xFFFFFFFF);
+    std::uint32_t ReflectValue32Bit(std::uint32_t value, int bits) const;
+    void InitCRC32();
+
     std::string keyword_;
     std::filesystem::path path_to_repo_;
     std::filesystem::path path_to_hpp_;
     std::filesystem::path path_to_cpp_;
     std::deque<std::filesystem::directory_entry> query_files_;
     std::unordered_map<std::string, std::string> todo_files_;
+
+
+    std::array<std::uint32_t, 256> crc_table_;
 };

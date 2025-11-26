@@ -1,12 +1,15 @@
 #include "../include/ttmd.hpp"
 
+#include <cassert>
+ 
+
 int main(int argc, char** argv) {
-    if (argc == 1) {
+ if (argc == 1) {
         std::cout << usage_cmd << std::endl;
 
         return EXIT_FAILURE;
     }
-    // TODO: Parsing args to new function
+
     else if (argc >= 6) {
         auto result = ParseComandLine(argc, argv);
 
@@ -41,13 +44,13 @@ int main(int argc, char** argv) {
             keyword = result["-k"];
         }
 
-        TTMD ttmd(path_dir, name_dir_hpp, name_dir_cpp);
-        if (!keyword.empty()) { 
-            ttmd.SetKeyWordParsed(keyword);
-        }
+        TTMD ttmd;
 
-        ttmd.Parse();
+        std::string crc_test{"123456789"};
+
+        std::cout << std::hex << "0x" << ttmd.CalcCRC32(crc_test.data(), crc_test.length());
+        // ttmd.Parse();
     }
+
     return EXIT_SUCCESS;
 }
-
