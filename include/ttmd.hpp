@@ -52,3 +52,25 @@ private:
 
     std::array<std::uint32_t, 256> crc_table_;
 };
+
+struct CSVRecordFile {
+    std::string file_name;
+    std::string path_to_file;
+    std::uint32_t crc_line = 0;
+    int number_line = 0;
+};
+
+struct CSVFile {
+    std::string file_name;
+    std::string path_to_file;
+    std::uint32_t crc_file = 0;
+};
+
+class CSV {
+public:
+    CSV() = delete;
+    static void GenerateCSVFile(const std::vector<CSVFile>& csv_files);
+    static void GenerateCSVRecord();
+    static bool WriteToFile(std::string_view path_to_file, const char* buffer, size_t length);
+    static bool ReadFile(std::string_view path_to_file);
+};

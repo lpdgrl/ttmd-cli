@@ -30,7 +30,8 @@ void TTMD::Parse() {
     }
 
     std::unordered_set<std::string> files_with_todo;
-
+    std::vector<CSVFile> csv_files;
+    
     // TODO: Take it out into methods
     for (const auto& entry : query_files_) {
         std::string path_to_file(entry.path().string());
@@ -53,13 +54,20 @@ void TTMD::Parse() {
                 std::cout << "From file <" << file_name << ">" << " on row " << row << " " << read_line.substr(read_line.find_first_not_of(' '), read_line.size()) << std::endl;
                 std::string key(file_name + ":" + std::to_string(row));
                 todo_files_[key] = read_line.substr(read_line.find_first_not_of(' '), read_line.size());
-                files_with_todo.insert(path_to_file);
+
+                if (files_with_todo.insert(path_to_file).second) {
+                    csv_files.push_back(CSVFile{
+                        .file_name = file_name,
+                        .path_to_file = path_to_file,
+                        .crc_file = 0
+                    });
+                }
             }
         } 
         query_files_.pop_front();
     }
-    std::unordered_map<std::string, std::uint32_t> crc_files;
 
+    std::unordered_map<std::string, std::uint32_t> crc_files;
     if (!files_with_todo.empty()) {
         for (const auto& file_name : files_with_todo) {
             char buffer[1024]; 
@@ -75,6 +83,15 @@ void TTMD::Parse() {
             crc_files[file_name] = crc_file;
         }
     }
+
+    for (auto& file : csv_files) {
+        if (auto it = crc_files.find(file.path_to_file); it != crc_files.end()) {
+            file.crc_file = it->second;
+        }
+    }
+    
+    // Write to CSV file with hash of source/header files repository
+    CSV::GenerateCSVFile(csv_files);
 
     if (!files_with_todo.empty()) {
         for (const auto& file_name : files_with_todo) {
@@ -94,7 +111,7 @@ void TTMD::Parse() {
         }
     }
 
-    WriteTODOFile();
+    // WriteTODOFile();
 }
 
 // TODO: Add unit test for WriteTODOFile
@@ -195,4 +212,45 @@ std::uint32_t TTMD::CalcCRC32(const char* buffer, size_t length, std::uint32_t c
         crc_value = (crc_value >> 8) ^ crc_table_[(crc_value ^ byte) & 0xFF];
     }
     return crc_value;
+}
+
+void CSV::GenerateCSVFile(const std::vector<CSVFile>& csv_files) {
+    using namespace std::literals;
+
+    if (csv_files.empty()) {
+        return;
+    }
+    
+    for (const auto& file : csv_files) {
+        std::ostringstream oss;
+
+        oss << std::hex << file.crc_file;
+        
+        std::string crc(oss.str());
+        std::string line_to_write(file.file_name + ';' + file.path_to_file + ';' + crc + ';');
+
+        WriteToFile("/home/lpdgrl/Project/code/ttmd-cli/.history/history.csv"s, line_to_write.data(), line_to_write.size());
+    }
+}
+
+void CSV::GenerateCSVRecord() {
+
+}
+
+bool CSV::WriteToFile(std::string_view path_to_file, const char* buffer, size_t length) {
+    std::cout << path_to_file.data() << std::endl;
+    std::ofstream ofs(path_to_file.data(), std::ios::app);
+
+    if (!ofs.is_open()) {
+        std::cerr << "Not opened this file: <" << path_to_file << ">" << std::endl;
+        return false;
+    }
+
+    ofs << buffer << '\n'; 
+
+    return true;
+}
+
+bool CSV::ReadFile(std::string_view path_to_file) {
+    return true;
 }
