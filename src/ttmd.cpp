@@ -9,11 +9,118 @@ TTMD::TTMD(std::string_view path_repo, std::string_view name_dir_hpp, std::strin
             InitCRC32();
         }
 
+void TTMD::ReadHistoryFile() {
+    fs::path history_file (path_to_repo_.string() + "/.history/history.csv");
+    
+    if (!fs::exists(history_file)) {
+        std::cout << "File: " << history_file << " isn't exists." << std::endl;
+        return;
+    }
+
+    std::ifstream ifs(history_file, std::ios::in);
+
+    if (!ifs.is_open()) {
+        std::cerr << "Not opened this file: <" << history_file << ">" << std::endl;
+        return;
+    }
+
+    std::string line_sep_comma;
+    while (std::getline(ifs, line_sep_comma, ';')) {
+        std::cout << line_sep_comma;
+    }
+}
+
+bool TTMD::ExistsAllDir(const std::vector<fs::path>& paths) const {
+    bool state = false;
+
+    for (const auto& path : paths) {
+        if (fs::exists(path)) {
+            std::cout << "Directory: " << path.string() << " exists." << std::endl;
+            state = true;
+        }
+        else {
+            state = false;
+        }
+    }
+
+    return state;
+}
+
+bool TTMD::ExistsAllFiles(const std::vector<fs::path>& paths) const {
+    bool state = false;
+
+    for (const auto& path : paths) {
+        if (fs::exists(path)) {
+            std::cout << "File: " << path.string() << " exists." << std::endl;
+            state = true;
+        }
+        else {
+            state = false;
+        }
+    }
+    
+    return state;
+}
+        
+void TTMD::Init() const {
+    // Directories
+    fs::path todo_history(path_to_repo_.string() + ".history");
+    fs::path history_file_cash(path_to_repo_.string() + ".history/cash_files");
+    fs::path history_line_file_cash(path_to_repo_.string() + ".history/cash_lines");
+    // Files
+    fs::path todo_filename(path_to_repo_.string() + "TODO.MD");
+    fs::path history_file(todo_history.string() + "/history.csv");
+
+    std::vector<fs::path> paths_dirs{todo_history, history_file_cash, history_line_file_cash};    
+    std::vector<fs::path> paths_files{todo_filename, history_file};
+
+    bool state_exists_dir = ExistsAllDir(paths_dirs);
+    bool state_exists_files = ExistsAllFiles(paths_files);
+
+    if (state_exists_dir && state_exists_files) {
+        return;
+    }
+
+    try {
+        if (!state_exists_dir) {
+            for (const auto& path : paths_dirs) {
+                fs::create_directory(path);
+                std::cout << "Created a directoriy: " << path << std::endl;
+            }
+        }
+    } catch (std::exception& e) {
+        std::cerr << "Error create a directory: " << e.what() << std::endl;
+        return;
+    }
+
+    try {
+        if (!state_exists_files) {
+            for (const auto& path_file : paths_files) {
+                std::ofstream ofs(path_file, std::ios::app);
+                if (!ofs.is_open()) {
+                    std::cerr << "Error create a file: " << path_file.relative_path() << std::endl;
+                }
+                std::cout << "Created a file: " << path_file.relative_path() << std::endl;
+            }
+        }
+    } catch (std::exception& e) {
+        std::cerr << "Error created a file: " << e.what() << std::endl;
+    }
+}
+
 void TTMD::SetKeyWordParsed(std::string_view keyword) noexcept {
     keyword_ = keyword;
 }
 
+std::string TTMD::Normalize(const std::string& in_str) const {
+    std::string result(in_str.substr(in_str.find_first_not_of(' '), in_str.size()));
+    return result;
+}
+
 void TTMD::Parse() {
+
+    ReadHistoryFile();
+
     std::filesystem::recursive_directory_iterator dir_hpp(path_to_hpp_);
     std::filesystem::recursive_directory_iterator dir_cpp(path_to_cpp_);
 
@@ -51,9 +158,10 @@ void TTMD::Parse() {
         while (std::getline(ifs, read_line)) {
             ++row;
             if (read_line.contains(keyword_)) {
-                std::cout << "From file <" << file_name << ">" << " on row " << row << " " << read_line.substr(read_line.find_first_not_of(' '), read_line.size()) << std::endl;
+                std::string normalize_line(Normalize(read_line));
+                std::cout << "TODO from file <" << file_name << ">" << " on row " << row << " " << normalize_line << std::endl;
                 std::string key(file_name + ":" + std::to_string(row));
-                todo_files_[key] = read_line.substr(read_line.find_first_not_of(' '), read_line.size());
+                todo_files_[key] = normalize_line;
 
                 if (files_with_todo.insert(path_to_file).second) {
                     csv_files.push_back(CSVFile{
@@ -90,8 +198,8 @@ void TTMD::Parse() {
         }
     }
     
-    // Write to CSV file with hash of source/header files repository
-    CSV::GenerateCSVFile(csv_files);
+    // // Write to CSV file with hash of source/header files repository
+    // CSV::GenerateCSVFile(csv_files);
 
     if (!files_with_todo.empty()) {
         for (const auto& file_name : files_with_todo) {
@@ -99,7 +207,6 @@ void TTMD::Parse() {
             std::string line;
             int count_line = 0;
 
-            
             while (std::getline(ifs, line)) {
                 std::uint32_t crc_line = 0;
                 count_line++;
@@ -238,7 +345,6 @@ void CSV::GenerateCSVRecord() {
 }
 
 bool CSV::WriteToFile(std::string_view path_to_file, const char* buffer, size_t length) {
-    std::cout << path_to_file.data() << std::endl;
     std::ofstream ofs(path_to_file.data(), std::ios::app);
 
     if (!ofs.is_open()) {
@@ -251,6 +357,11 @@ bool CSV::WriteToFile(std::string_view path_to_file, const char* buffer, size_t 
     return true;
 }
 
-bool CSV::ReadFile(std::string_view path_to_file) {
-    return true;
+std::optional<CSVFile> CSV::ReadFile(std::string_view path_to_file) {
+    std::ifstream ifs(path_to_file.data(), std::ios::in);
+
+    if (!ifs.is_open()) {
+        std::cerr << "Not opened this file: <" << path_to_file << ">" << std::endl;
+        return std::nullopt;
+    }
 }

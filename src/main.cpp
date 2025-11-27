@@ -42,6 +42,7 @@ int main(int argc, char** argv) {
         }
 
         TTMD ttmd(path_dir, name_dir_hpp, name_dir_cpp);
+        ttmd.Init();
         if (!keyword.empty()) { 
             ttmd.SetKeyWordParsed(keyword);
         }
