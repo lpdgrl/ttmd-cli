@@ -45,7 +45,7 @@ struct CSVFile {
 };
 
 struct CSVFileHasher {
-    size_t operator()(const CSVFile& csv_file) const {
+    size_t operator()(CSVFile csv_file) {
         size_t h1 = std::hash<std::string>{}(csv_file.file_name);
         size_t h2 = std::hash<std::string>{}(csv_file.path_to_file);
         size_t h3 = std::hash<uint32_t>{}(csv_file.crc_file);
@@ -53,6 +53,7 @@ struct CSVFileHasher {
     } 
 };
 
+std::ostream& operator<<(std::ostream& out, const CSVFile& csv_file);
 
 class TTMD {
 public:
@@ -70,6 +71,7 @@ private:
     std::string Normalize(const std::string& in_str) const;
     bool ExistsAllDir(const std::vector<fs::path>& paths) const;
     bool ExistsAllFiles(const std::vector<fs::path>& paths) const;
+    bool Exists(const std::vector<fs::path>& paths, std::string_view str_out) const;
 
     void ReadHistoryFile();
     bool CheckHashFile(const fs::path& path) const;
@@ -90,7 +92,7 @@ private:
 
     std::array<std::uint32_t, 256> crc_table_;
 
-    std::unordered_map<std::string, CSVFile, CSVFileHasher> readed_csv_files_;
+    std::unordered_map<std::string, CSVFile> cache_csv_file_;
 };
 
 class CSV {
@@ -100,4 +102,5 @@ public:
     static void GenerateCSVRecord();
     static bool WriteToFile(std::string_view path_to_file, const char* buffer, size_t length);
     static std::optional<CSVFile> ReadFile(std::string_view path_to_file);
+    static std::optional<CSVFile> ReadFromString(std::string_view csv_string);
 };

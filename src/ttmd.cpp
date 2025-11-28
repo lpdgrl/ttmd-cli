@@ -25,33 +25,30 @@ void TTMD::ReadHistoryFile() {
     }
 
     std::string line_sep_comma;
-    while (std::getline(ifs, line_sep_comma, ';')) {
-        std::cout << line_sep_comma;
+    while (std::getline(ifs, line_sep_comma)) {
+        auto opt_csv_file = CSV::ReadFromString(line_sep_comma);
+        if (opt_csv_file.has_value()) {
+            auto csv_file = opt_csv_file.value();
+            std::cout << csv_file;
+            cache_csv_file_[csv_file.file_name] = csv_file;
+        }
     }
 }
 
 bool TTMD::ExistsAllDir(const std::vector<fs::path>& paths) const {
-    bool state = false;
-
-    for (const auto& path : paths) {
-        if (fs::exists(path)) {
-            std::cout << "Directory: " << path.string() << " exists." << std::endl;
-            state = true;
-        }
-        else {
-            state = false;
-        }
-    }
-
-    return state;
+    return Exists(paths, "Directory: ");
 }
 
 bool TTMD::ExistsAllFiles(const std::vector<fs::path>& paths) const {
+    return Exists(paths, "File: ");
+}
+
+bool TTMD::Exists(const std::vector<fs::path>& paths, std::string_view str_out) const {
     bool state = false;
 
     for (const auto& path : paths) {
         if (fs::exists(path)) {
-            std::cout << "File: " << path.string() << " exists." << std::endl;
+            std::cout << str_out << path.string() << " exists." << std::endl;
             state = true;
         }
         else {
@@ -357,6 +354,30 @@ bool CSV::WriteToFile(std::string_view path_to_file, const char* buffer, size_t 
     return true;
 }
 
+std::optional<CSVFile> CSV::ReadFromString(std::string_view csv_from_string) {
+    if (csv_from_string.empty()) {
+        return std::nullopt;
+    }
+
+    // std::cout << "Test string: " << csv_from_string << std::endl;
+    CSVFile result;
+
+    size_t idx_first = csv_from_string.find_first_of(';');
+    size_t idx_two = csv_from_string.find_first_of(';', idx_first + 1);
+
+    result.file_name = csv_from_string.substr(0, idx_first);
+    // std::cout << "Test substr filename: " << result.file_name << std::endl;
+
+    result.path_to_file = csv_from_string.substr(idx_first + 1, idx_two - (idx_first + 1));
+    // std::cout << "Test substr path to file: " << result.path_to_file << std::endl;
+
+    // std::cout << "Test subst crc file: " << csv_from_string.substr(idx_two + 1, csv_from_string.size() - idx_two - 2) << std::endl;
+
+    result.crc_file = std::stoul(csv_from_string.substr(idx_two + 1, csv_from_string.size() - idx_two - 2).data(), nullptr, 16);
+
+    return {result};
+}
+
 std::optional<CSVFile> CSV::ReadFile(std::string_view path_to_file) {
     std::ifstream ifs(path_to_file.data(), std::ios::in);
 
@@ -364,4 +385,12 @@ std::optional<CSVFile> CSV::ReadFile(std::string_view path_to_file) {
         std::cerr << "Not opened this file: <" << path_to_file << ">" << std::endl;
         return std::nullopt;
     }
+
+    return std::nullopt;
+}
+
+std::ostream& operator<<(std::ostream& out, const CSVFile& csv_file) {
+    return out << "Filename: <" << csv_file.file_name << "> "
+            << " Path to file: <" << csv_file.path_to_file << "> "
+            << "CRC of the file: <" << csv_file.crc_file << ">" << std::endl;
 }
