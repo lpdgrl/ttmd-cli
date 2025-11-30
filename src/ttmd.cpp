@@ -4,10 +4,9 @@ TTMD::TTMD(std::string_view path_repo, std::string_view name_dir_hpp, std::strin
         : keyword_(keyword)
         , path_to_repo_(path_repo)
         , path_to_hpp_(path_to_repo_.string() + name_dir_hpp.data())
-        , path_to_cpp_(path_to_repo_.string() + name_dir_cpp.data())
-        {
+        , path_to_cpp_(path_to_repo_.string() + name_dir_cpp.data()) {
             InitCRC32();
-        }
+}
 
 void TTMD::ReadHistoryFile() {
     fs::path history_file (path_to_repo_.string() + "/.history/history.csv");
@@ -30,7 +29,33 @@ void TTMD::ReadHistoryFile() {
         if (opt_csv_file.has_value()) {
             auto csv_file = opt_csv_file.value();
             std::cout << csv_file;
-            cache_csv_file_[csv_file.file_name] = csv_file;
+            cache_csv_file_.push_back(csv_file);
+            cache_csv_file_iter_[csv_file.file_name] = std::prev(cache_csv_file_.end());
+        }
+    }
+}
+
+void TTMD::ReadCacheLinesFiles() {
+    fs::path cache_lines = path_to_repo_ / ".history" / "cache_lines";
+
+    for (const auto& entry : fs::recursive_directory_iterator(cache_lines)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+
+        std::ifstream ifs(entry.path(), std::ios::in);
+        if (!ifs.is_open()) {
+            std::println("Not opened this file: <{}>", entry.path().filename().string());
+            continue;
+        }
+
+        std::string line_sep_dot_comma;
+        while (std::getline(ifs, line_sep_dot_comma)) {
+            if (auto opt_csv_file_lines = CSV::ReadRecFileFromString(line_sep_dot_comma); opt_csv_file_lines.has_value()) {
+                CSVRecordFile csv_record_file = opt_csv_file_lines.value();
+                std::cout << csv_record_file;
+                cache_csv_lines_[csv_record_file.crc_line] = csv_record_file;
+            }
         }
     }
 }
@@ -62,13 +87,12 @@ bool TTMD::Exists(const std::vector<fs::path>& paths, std::string_view str_out) 
 void TTMD::Init() const {
     // Directories
     fs::path todo_history(path_to_repo_.string() + ".history");
-    fs::path history_file_cash(path_to_repo_.string() + ".history/cash_files");
-    fs::path history_line_file_cash(path_to_repo_.string() + ".history/cash_lines");
+    fs::path history_line_file_cache(path_to_repo_.string() + ".history/cache_lines");
     // Files
     fs::path todo_filename(path_to_repo_.string() + "TODO.MD");
     fs::path history_file(todo_history.string() + "/history.csv");
 
-    std::vector<fs::path> paths_dirs{todo_history, history_file_cash, history_line_file_cash};    
+    std::vector<fs::path> paths_dirs{todo_history, history_line_file_cache};    
     std::vector<fs::path> paths_files{todo_filename, history_file};
 
     bool state_exists_dir = ExistsAllDir(paths_dirs);
@@ -114,9 +138,53 @@ std::string TTMD::Normalize(const std::string& in_str) const {
     return result;
 }
 
-void TTMD::Parse() {
+std::uint32_t TTMD::ReadFileAndCalcCrc(const fs::path& path) const {
+    char buffer[kBufferSize]; 
+    std::ifstream ifs(path, std::ios::binary);
+    std::uint32_t crc_file = 0;
 
+    // TODO: Add std::vector<std::uint8_t>
+    do {
+        ifs.read(buffer, kBufferSize);
+        crc_file = CalcCRCFile(buffer, ifs.gcount(), crc_file);
+    } while (ifs);
+
+    crc_file ^= 0xFFFFFFFF;
+
+    return crc_file;
+}
+
+void TTMD::UpdateCacheInCsvFile() const {
+   std::vector<CSVFile> csv_files;
+
+    for (const auto& csv_file : cache_csv_file_) {
+        csv_files.push_back(CSVFile{
+            .file_name = csv_file.file_name,
+            .path_to_file = csv_file.path_to_file,
+            .crc_file = csv_file.crc_file,
+            .line_number = csv_file.line_number
+        });
+    }
+
+    CSV::GenerateCSVFile(csv_files);
+}
+
+void TTMD::UpdateCacheInCsvRecordFiles() {
+
+}
+
+bool TTMD::CheckHashFile(std::string_view filename, std::uint32_t crc_file) const {
+    const auto csv_file = cache_csv_file_iter_.at(filename.data());
+    std::cout << std::hex << "csv_file " << filename << " from cache: " << csv_file->crc_file << " crc_calc: " << crc_file << std::endl;
+    
+    return csv_file->crc_file == crc_file;
+}
+
+void TTMD::Parse() {
+    // Read history.csv
     ReadHistoryFile();
+    // Read all csv files in directory .history/cache_lines
+    ReadCacheLinesFiles();
 
     std::filesystem::recursive_directory_iterator dir_hpp(path_to_hpp_);
     std::filesystem::recursive_directory_iterator dir_cpp(path_to_cpp_);
@@ -133,14 +201,53 @@ void TTMD::Parse() {
         }
     }
 
+    if (query_files_.empty()) {
+        std::cerr << "Query of files is empty!" << std::endl;
+        return;
+    }
+
     std::unordered_set<std::string> files_with_todo;
     std::vector<CSVFile> csv_files;
-    
+    std::vector<CSVRecordFile> csv_file_lines;
+
+    bool cache_invalid = false;
+    unsigned int line_number_csv_file = cache_csv_file_.size() == 0 ? 0 : cache_csv_file_.size();
+
     // TODO: Take it out into methods
-    for (const auto& entry : query_files_) {
-        std::string path_to_file(entry.path().string());
+    while (!query_files_.empty()) {
+        auto& file = query_files_.front();
+        std::string file_name(file.path().filename());
+        std::uint32_t crc_file = ReadFileAndCalcCrc(file.path());
+
+        auto it_find_file = cache_csv_file_iter_.find(file_name); 
+        
+        if (it_find_file == cache_csv_file_iter_.end()) {
+
+            CSVFile csv_file{
+              .file_name = file_name,
+              .path_to_file = file.path().string(),
+              .crc_file = crc_file,
+              .line_number = cache_csv_file_.size() == 0 ? line_number_csv_file++ : static_cast<unsigned int>(cache_csv_file_.size())
+            };
+
+            std::string path_to_write(path_to_repo_.string() + ".history/history.csv");
+            std::string str_from_csv_file(ToString(csv_file));
+
+            CSV::WriteToFile(path_to_write, str_from_csv_file.data(), str_from_csv_file.size());
+        }
+
+        if (it_find_file != cache_csv_file_iter_.end()) {
+            if (CheckHashFile(file_name, crc_file)) {
+                query_files_.pop_front();
+                continue;
+            }
+            cache_invalid = true;
+
+            it_find_file->second->crc_file = crc_file;
+        }
+        
+        std::string path_to_file(file.path().string());
         std::ifstream ifs(path_to_file.data(), std::ios::in);
-        std::string file_name(entry.path().filename());
 
         if (!ifs.is_open()) {
             std::cerr << "Error to open file <" << file_name << ">" << std::endl;
@@ -150,70 +257,54 @@ void TTMD::Parse() {
 
         // TODO: Think about optimization
         std::cout << "Begining to read file <" << file_name << ">" << std::endl;
+
         std::string read_line;
         int row = 0;
+
+        std::uint32_t crc_line_prev = 0;
+        bool state_todo = false;
+
         while (std::getline(ifs, read_line)) {
             ++row;
+            std::uint32_t crc_read_line = CalcCRC32(read_line.data(), read_line.size());
+            //
+            if (state_todo) {
+                auto& ref_csv_file_lines = csv_file_lines.back();
+                ref_csv_file_lines.crc_line = ref_csv_file_lines.crc_line ^ crc_read_line;
+                state_todo = false;
+            }
+
             if (read_line.contains(keyword_)) {
                 std::string normalize_line(Normalize(read_line));
-                std::cout << "TODO from file <" << file_name << ">" << " on row " << row << " " << normalize_line << std::endl;
-                std::string key(file_name + ":" + std::to_string(row));
+
+                std::println("TODO from file <{}> on row <{}> CRC line: <{}> Normalize line <{}>", file_name, row, (crc_line_prev ^ crc_read_line), normalize_line);
+                // 
+                std::string key(file_name + ':' + std::to_string(row));
                 todo_files_[key] = normalize_line;
 
-                if (files_with_todo.insert(path_to_file).second) {
-                    csv_files.push_back(CSVFile{
-                        .file_name = file_name,
-                        .path_to_file = path_to_file,
-                        .crc_file = 0
-                    });
-                }
-            }
+                csv_file_lines.push_back(CSVRecordFile{
+                    .file_name = file_name,
+                    .path_to_file = path_to_file,
+                    .todo = normalize_line,
+                    .crc_line = crc_line_prev ^ crc_read_line,
+                    .line_number = row
+                });
+                state_todo = true;
+            } 
+            crc_line_prev = crc_read_line;
         } 
         query_files_.pop_front();
     }
 
-    std::unordered_map<std::string, std::uint32_t> crc_files;
-    if (!files_with_todo.empty()) {
-        for (const auto& file_name : files_with_todo) {
-            char buffer[1024]; 
-            std::ifstream ifs(file_name.data(), std::ios::binary);
-            std::uint32_t crc_file = 0;
-
-            while (ifs.read(buffer, 1024)) {
-                crc_file = CalcCRCFile(buffer, ifs.gcount(), crc_file);
-            }
-            crc_file ^= 0xFFFFFFFF;
-
-            std::cout << "CRC32 for file: " << file_name << " " << std::hex << crc_file << std::endl;
-            crc_files[file_name] = crc_file;
-        }
+    if (cache_invalid) {
+        UpdateCacheInCsvFile();
     }
 
-    for (auto& file : csv_files) {
-        if (auto it = crc_files.find(file.path_to_file); it != crc_files.end()) {
-            file.crc_file = it->second;
-        }
+    if (cache_csv_lines_.empty()) {
+        CSV::GenerateCSVRecord(csv_file_lines);
     }
-    
-    // // Write to CSV file with hash of source/header files repository
-    // CSV::GenerateCSVFile(csv_files);
 
-    if (!files_with_todo.empty()) {
-        for (const auto& file_name : files_with_todo) {
-            std::ifstream ifs(file_name.data(), std::ios::in);
-            std::string line;
-            int count_line = 0;
-
-            while (std::getline(ifs, line)) {
-                std::uint32_t crc_line = 0;
-                count_line++;
-                crc_line = CalcCRC32(line.data(), line.size(), crc_line);
-                crc_line ^= 0xFFFFFFFF;
-                std::cout << std::dec << "FileName: " << file_name << " CRC32 for every line: " <<  count_line << " "; 
-                std::cout << std::hex << crc_line << std::endl;
-            }
-        }
-    }
+    UpdateCacheInCsvRecordFiles();
 
     // WriteTODOFile();
 }
@@ -267,7 +358,7 @@ ResultParseCMD ParseComandLine(int argc, char** argv) {
     return result;
 }
 
-std::uint32_t TTMD::CalcCRCFile(const char* buffer, size_t length, std::uint32_t crc_value) {
+std::uint32_t TTMD::CalcCRCFile(const char* buffer, size_t length, std::uint32_t crc_value) const {
     return CalcCRC32(buffer, length, crc_value);
 }
 
@@ -275,7 +366,7 @@ void TTMD::InitCRC32() {
     // defined by IEEE 802.3
     static const std::uint32_t poly = 0x04C11DB7;
 
-    for (int i = 0; i < crc_table_.size(); ++i) {
+    for (size_t i = 0; i < crc_table_.size(); ++i) {
         std::uint32_t temp = i;
         temp = ReflectValue32Bit(temp, 8); // Reflect 8-bit input byte
         temp <<= 24;  // Align to top 8 bits of 32-bit register
@@ -306,7 +397,7 @@ std::uint32_t TTMD::ReflectValue32Bit(std::uint32_t value, int bits) const {
 }
 
 // Realization CRC32
-std::uint32_t TTMD::CalcCRC32(const char* buffer, size_t length, std::uint32_t crc_value) {
+std::uint32_t TTMD::CalcCRC32(const char* buffer, size_t length, std::uint32_t crc_value) const {
     // init value is reversing for byte of data
     
     for (size_t i = 0; i < length; ++i) {
@@ -325,25 +416,47 @@ void CSV::GenerateCSVFile(const std::vector<CSVFile>& csv_files) {
         return;
     }
     
+    // TODO: Rewrite. Now is opening for clear file.
+    std::ofstream ofs("/home/lpdgrl/Project/code/ttmd-cli/.history/history.csv"s, std::ios::trunc);
+    ofs.close();
+
     for (const auto& file : csv_files) {
         std::ostringstream oss;
-
+// /
         oss << std::hex << file.crc_file;
         
         std::string crc(oss.str());
-        std::string line_to_write(file.file_name + ';' + file.path_to_file + ';' + crc + ';');
+        std::string line_to_write(file.file_name + ';' + file.path_to_file + ';' + crc + ';' + std::to_string(file.line_number) + ';');
 
+        // TODO: Remove hardcode for path
         WriteToFile("/home/lpdgrl/Project/code/ttmd-cli/.history/history.csv"s, line_to_write.data(), line_to_write.size());
     }
 }
 
-void CSV::GenerateCSVRecord() {
+void CSV::GenerateCSVRecord(const std::vector<CSVRecordFile>& csv_record_files) {
+    using namespace std::literals;
 
+    if (csv_record_files.empty()) {
+        return;
+    }
+
+    for (const auto& file : csv_record_files) {
+        std::string filename(file.file_name.substr(0, file.file_name.find_first_of('.')));
+        // TODO: Rewrite. Now is opening for clear file.
+        std::string path("/home/lpdgrl/Project/code/ttmd-cli/.history/cache_lines/" + filename + ".csv");
+        // std::ofstream ofs(path, std::ios::trunc);
+        // ofs.close();
+
+        std::string line_to_write(ToString(file));
+
+        // TODO: Remove hardcode for path
+        WriteToFile(path, line_to_write.data(), line_to_write.size());
+    }
 }
 
-bool CSV::WriteToFile(std::string_view path_to_file, const char* buffer, size_t length) {
+bool CSV::WriteToFile(std::string_view path_to_file, const char* buffer, [[maybe_unused]] size_t length) {
     std::ofstream ofs(path_to_file.data(), std::ios::app);
-
+    
     if (!ofs.is_open()) {
         std::cerr << "Not opened this file: <" << path_to_file << ">" << std::endl;
         return false;
@@ -364,6 +477,7 @@ std::optional<CSVFile> CSV::ReadFromString(std::string_view csv_from_string) {
 
     size_t idx_first = csv_from_string.find_first_of(';');
     size_t idx_two = csv_from_string.find_first_of(';', idx_first + 1);
+    size_t idx_three = csv_from_string.find_first_of(';', idx_two + 1);
 
     result.file_name = csv_from_string.substr(0, idx_first);
     // std::cout << "Test substr filename: " << result.file_name << std::endl;
@@ -375,9 +489,44 @@ std::optional<CSVFile> CSV::ReadFromString(std::string_view csv_from_string) {
 
     result.crc_file = std::stoul(csv_from_string.substr(idx_two + 1, csv_from_string.size() - idx_two - 2).data(), nullptr, 16);
 
+    result.line_number = std::stoi(csv_from_string.substr(idx_three + 1, csv_from_string.size() - idx_three - 1).data());
+
     return {result};
 }
 
+std::optional<CSVRecordFile> CSV::ReadRecFileFromString(std::string_view csv_from_string) {
+    if (csv_from_string.empty()) {
+        return std::nullopt;
+    }
+
+    // Structure in CSVRecordFile:
+    //      first column;   two_column;         three column;   four column;   fifth column;
+    //      <file_name>;    <path_to_file>;     <TODO>;          <crc_line>;     <line_number>;
+    CSVRecordFile result;
+
+    size_t idx_filename = csv_from_string.find_first_of(';');
+    size_t idx_path_file = csv_from_string.find_first_of(';', idx_filename + 1);
+    size_t idx_todo = csv_from_string.find_first_of(';', idx_path_file + 1);
+    size_t idx_crc = csv_from_string.find_first_of(';', idx_todo + 1);
+    
+    result.file_name = csv_from_string.substr(0, idx_filename);
+    std::cout << "TEST: filename <" << result.file_name << "> "; 
+
+    result.path_to_file = csv_from_string.substr(idx_filename + 1, idx_path_file - (idx_filename + 1));
+    std::cout << "path_to_file <" << result.path_to_file << "> ";
+
+    result.todo = csv_from_string.substr(idx_path_file + 1, idx_todo - (idx_path_file + 1));
+    std::cout << "todo <" << result.todo << "> ";
+    
+    result.crc_line = std::stoul(csv_from_string.substr(idx_todo + 1, csv_from_string.size() - idx_todo - 2).data(), nullptr, 16);
+    std::cout << "crc_line <" << result.crc_line << "> ";
+    
+    result.line_number = std::stoi(csv_from_string.substr(idx_crc + 1, csv_from_string.size() - idx_crc - 1).data());
+    std::cout << "line_number <" << result.line_number << "> ";
+
+    return {result};
+}
+ 
 std::optional<CSVFile> CSV::ReadFile(std::string_view path_to_file) {
     std::ifstream ifs(path_to_file.data(), std::ios::in);
 
@@ -391,6 +540,43 @@ std::optional<CSVFile> CSV::ReadFile(std::string_view path_to_file) {
 
 std::ostream& operator<<(std::ostream& out, const CSVFile& csv_file) {
     return out << "Filename: <" << csv_file.file_name << "> "
-            << " Path to file: <" << csv_file.path_to_file << "> "
-            << "CRC of the file: <" << csv_file.crc_file << ">" << std::endl;
+            << "Path to file: <" << csv_file.path_to_file << "> "
+            << "CRC of the file: <" << csv_file.crc_file << "> " 
+            << "Line number: <" << csv_file.line_number << ">" << std::endl;
+}
+
+std::string ToString(const CSVFile& csv_file) {
+    std::ostringstream oss;
+
+    oss << std::hex << csv_file.crc_file;
+
+    std::string result(csv_file.file_name + ';' 
+        + csv_file.path_to_file + ';' 
+        + oss.str() + ';' 
+        + std::to_string(csv_file.line_number) + ';');
+
+    return result;
+}
+
+std::string ToString(const CSVRecordFile& csv_record_file) {
+    std::ostringstream oss;
+
+    oss << std::hex << csv_record_file.crc_line;
+
+    std::string result(csv_record_file.file_name + ';' 
+        + csv_record_file.path_to_file + ';' 
+        + csv_record_file.todo + ';' 
+        + oss.str() + ';' 
+        + std::to_string(csv_record_file.line_number) + ';'
+    );
+
+    return result;
+}
+
+std::ostream& operator<<(std::ostream& out, const CSVRecordFile& csv_record_file) {
+    return out << "Filename: <" << csv_record_file.file_name << "> "
+        << "Path to file: <" << csv_record_file.path_to_file << "> "
+        << "TODO: <" << csv_record_file.todo << "> "
+        << "CRC of the file: <" << csv_record_file.crc_line << "> " 
+        << "Line number: <" << csv_record_file.line_number << ">" << std::endl;
 }

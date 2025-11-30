@@ -10,4 +10,6 @@ set(SOURCE_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ttmd.cpp
 )
 
+add_compile_options(-Wall -Wextra -Wpedantic)
+
 add_executable(ttmd-cli ${SOURCE_FILES})
