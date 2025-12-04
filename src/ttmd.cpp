@@ -9,8 +9,8 @@ TTMD::TTMD(std::string_view path_repo, std::string_view name_dir_hpp, std::strin
 }
 
 void TTMD::ReadHistoryFile() {
-    fs::path history_file (path_to_repo_.string() + "/.history/history.csv");
-    
+    fs::path history_file = path_to_repo_ / ".history" / "history.csv";
+     
     if (!fs::exists(history_file)) {
         std::cout << "File: " << history_file << " isn't exists." << std::endl;
         return;
@@ -38,13 +38,22 @@ void TTMD::ReadHistoryFile() {
 void TTMD::ReadCacheLinesFiles() {
     fs::path cache_lines = path_to_repo_ / ".history" / "cache_lines";
 
+    if (!fs::exists(cache_lines) || !fs::is_directory(cache_lines))  {
+        std::cerr << "Directory doesn't exist: " << cache_lines << std::endl;
+        return;
+    }
+
+    bool found_any_file = false;
+
     for (const auto& entry : fs::recursive_directory_iterator(cache_lines)) {
         if (!entry.is_regular_file()) {
             continue;
         }
 
+        found_any_file = true;
+
         std::ifstream ifs(entry.path(), std::ios::in);
-        if (!ifs.is_open()) {
+        if (!ifs) {
             std::println("Not opened this file: <{}>", entry.path().filename().string());
             continue;
         }
@@ -57,6 +66,10 @@ void TTMD::ReadCacheLinesFiles() {
                 cache_csv_lines_[csv_record_file.crc_line] = csv_record_file;
             }
         }
+    }
+
+    if (!found_any_file) {
+        std::cerr << "No regular files found in directory: " << cache_lines << std::endl;
     }
 }
 
@@ -73,7 +86,7 @@ bool TTMD::Exists(const std::vector<fs::path>& paths, std::string_view str_out) 
 
     for (const auto& path : paths) {
         if (fs::exists(path)) {
-            std::cout << str_out << path.string() << " exists." << std::endl;
+            std::println("{} {} exists.", str_out, path.string());
             state = true;
         }
         else {
@@ -86,11 +99,11 @@ bool TTMD::Exists(const std::vector<fs::path>& paths, std::string_view str_out) 
         
 void TTMD::Init() const {
     // Directories
-    fs::path todo_history(path_to_repo_.string() + ".history");
-    fs::path history_line_file_cache(path_to_repo_.string() + ".history/cache_lines");
+    fs::path todo_history = path_to_repo_ / ".history";
+    fs::path history_line_file_cache = path_to_repo_ / ".history" / "cache_lines";
     // Files
-    fs::path todo_filename(path_to_repo_.string() + "TODO.MD");
-    fs::path history_file(todo_history.string() + "/history.csv");
+    fs::path todo_filename = path_to_repo_ / "TODO.MD";
+    fs::path history_file = todo_history / "history.csv";
 
     std::vector<fs::path> paths_dirs{todo_history, history_line_file_cache};    
     std::vector<fs::path> paths_files{todo_filename, history_file};
@@ -169,8 +182,13 @@ void TTMD::UpdateCacheInCsvFile() const {
     CSV::GenerateCSVFile(csv_files);
 }
 
-void TTMD::UpdateCacheInCsvRecordFiles() {
+// TODO: What is to doing?
+void TTMD::UpdateCacheInCsvRecordFiles(const std::vector<CSVRecordFile>& csv_record_files) const {
+    if (csv_record_files.empty()) {
+        return;
+    }
 
+    CSV::GenerateCSVRecord(csv_record_files);
 }
 
 bool TTMD::CheckHashFile(std::string_view filename, std::uint32_t crc_file) const {
@@ -180,28 +198,35 @@ bool TTMD::CheckHashFile(std::string_view filename, std::uint32_t crc_file) cons
     return csv_file->crc_file == crc_file;
 }
 
+bool TTMD::IsCheckHashLine(std::uint32_t crc_line) const {
+    auto it_crc_line = cache_csv_lines_.find(crc_line); 
+    return it_crc_line != cache_csv_lines_.end();
+}
+
+void TTMD::EnQueueDirectoryEntry() {
+    for (const auto& entry :  std::filesystem::recursive_directory_iterator(path_to_hpp_)) {
+        if (entry.is_regular_file()) {
+            queue_pending_files_.push_back(entry);
+        }
+    }
+
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(path_to_cpp_)) {
+        if (entry.is_regular_file()) {
+            queue_pending_files_.push_back(entry);
+        }
+    }
+}
+
 void TTMD::Parse() {
     // Read history.csv
     ReadHistoryFile();
     // Read all csv files in directory .history/cache_lines
     ReadCacheLinesFiles();
 
-    std::filesystem::recursive_directory_iterator dir_hpp(path_to_hpp_);
-    std::filesystem::recursive_directory_iterator dir_cpp(path_to_cpp_);
+    // Add files to queue for pending from include and src
+    EnQueueDirectoryEntry();
 
-    for (const auto& entry : dir_hpp) {
-        if (entry.is_regular_file()) {
-            query_files_.push_back(entry);
-        }
-    }
-
-    for (const auto& entry : dir_cpp) {
-        if (entry.is_regular_file()) {
-            query_files_.push_back(entry);
-        }
-    }
-
-    if (query_files_.empty()) {
+    if (queue_pending_files_.empty()) {
         std::cerr << "Query of files is empty!" << std::endl;
         return;
     }
@@ -214,10 +239,10 @@ void TTMD::Parse() {
     unsigned int line_number_csv_file = cache_csv_file_.size() == 0 ? 0 : cache_csv_file_.size();
 
     // TODO: Take it out into methods
-    while (!query_files_.empty()) {
-        auto& file = query_files_.front();
-        std::string file_name(file.path().filename());
-        std::uint32_t crc_file = ReadFileAndCalcCrc(file.path());
+    while (!queue_pending_files_.empty()) {
+        auto& entry = queue_pending_files_.front();
+        std::string file_name(entry.path().filename());
+        std::uint32_t crc_file = ReadFileAndCalcCrc(entry.path());
 
         auto it_find_file = cache_csv_file_iter_.find(file_name); 
         
@@ -225,7 +250,7 @@ void TTMD::Parse() {
 
             CSVFile csv_file{
               .file_name = file_name,
-              .path_to_file = file.path().string(),
+              .path_to_file = entry.path().string(),
               .crc_file = crc_file,
               .line_number = cache_csv_file_.size() == 0 ? line_number_csv_file++ : static_cast<unsigned int>(cache_csv_file_.size())
             };
@@ -238,7 +263,7 @@ void TTMD::Parse() {
 
         if (it_find_file != cache_csv_file_iter_.end()) {
             if (CheckHashFile(file_name, crc_file)) {
-                query_files_.pop_front();
+                queue_pending_files_.pop_front();
                 continue;
             }
             cache_invalid = true;
@@ -246,12 +271,12 @@ void TTMD::Parse() {
             it_find_file->second->crc_file = crc_file;
         }
         
-        std::string path_to_file(file.path().string());
+        std::string path_to_file(entry.path().string());
         std::ifstream ifs(path_to_file.data(), std::ios::in);
 
-        if (!ifs.is_open()) {
+        if (!ifs) {
             std::cerr << "Error to open file <" << file_name << ">" << std::endl;
-            query_files_.pop_front();
+            queue_pending_files_.pop_front();
             continue;
         }
 
@@ -259,41 +284,46 @@ void TTMD::Parse() {
         std::cout << "Begining to read file <" << file_name << ">" << std::endl;
 
         std::string read_line;
-        int row = 0;
+        int number_row = 0;
 
         std::uint32_t crc_line_prev = 0;
-        bool state_todo = false;
+        bool is_adding_todo = false;
 
         while (std::getline(ifs, read_line)) {
-            ++row;
+            ++number_row;
             std::uint32_t crc_read_line = CalcCRC32(read_line.data(), read_line.size());
-            //
-            if (state_todo) {
+        
+            if (is_adding_todo) {
                 auto& ref_csv_file_lines = csv_file_lines.back();
                 ref_csv_file_lines.crc_line = ref_csv_file_lines.crc_line ^ crc_read_line;
-                state_todo = false;
+                is_adding_todo = false;
+
+                if (!IsCheckHashLine(ref_csv_file_lines.crc_line)) {
+                    std::string key(ref_csv_file_lines.file_name + ':' + std::to_string(ref_csv_file_lines.line_number));
+                    todo_files_.emplace(key, ref_csv_file_lines.todo);
+                } else {
+                    csv_file_lines.pop_back();
+                }
             }
 
-            if (read_line.contains(keyword_)) {
+            if (read_line.contains("// " + keyword_)) {
                 std::string normalize_line(Normalize(read_line));
 
-                std::println("TODO from file <{}> on row <{}> CRC line: <{}> Normalize line <{}>", file_name, row, (crc_line_prev ^ crc_read_line), normalize_line);
-                // 
-                std::string key(file_name + ':' + std::to_string(row));
-                todo_files_[key] = normalize_line;
+                std::println("TODO from file <{}> on row <{}> CRC line: <{}> Normalize line <{}>", file_name, number_row, (crc_line_prev ^ crc_read_line), normalize_line);
 
                 csv_file_lines.push_back(CSVRecordFile{
                     .file_name = file_name,
                     .path_to_file = path_to_file,
                     .todo = normalize_line,
                     .crc_line = crc_line_prev ^ crc_read_line,
-                    .line_number = row
+                    .line_number = number_row
                 });
-                state_todo = true;
+
+                is_adding_todo = true;
             } 
             crc_line_prev = crc_read_line;
         } 
-        query_files_.pop_front();
+        queue_pending_files_.pop_front();
     }
 
     if (cache_invalid) {
@@ -302,11 +332,11 @@ void TTMD::Parse() {
 
     if (cache_csv_lines_.empty()) {
         CSV::GenerateCSVRecord(csv_file_lines);
+    } else {
+        UpdateCacheInCsvRecordFiles(csv_file_lines);
     }
 
-    UpdateCacheInCsvRecordFiles();
-
-    // WriteTODOFile();
+    WriteTODOFile();
 }
 
 // TODO: Add unit test for WriteTODOFile
@@ -314,6 +344,7 @@ void TTMD::WriteTODOFile() const {
     namespace krn = std::chrono;
 
     if (todo_files_.empty()) {
+        std::println("Not todo for writing to file.");
         return;
     }
 
@@ -328,13 +359,13 @@ void TTMD::WriteTODOFile() const {
 
     std::string date_time(oss.str());
 
-    // TODO: Remove hardcode 'TODO.MD'
-    std::ofstream ofs(path_to_repo_.string() + "TODO.MD", std::ios::app);
-    std::string checkbox = R"(* [ ] )";
+    fs::path path_to_todo = path_to_repo_ / "TODO.MD";
+    std::ofstream ofs(path_to_todo, std::ios::app);
 
+    std::string checkbox = R"(* [ ] )";
     for (const auto& [key, value] : todo_files_) {
         ofs << '\n';
-        ofs << checkbox << value.substr(value.find_first_not_of('/'), value.size()) << ". From file: <" << key << ">. Adding date: " << date_time;
+        ofs << checkbox << value.todo.substr(value.todo.find_first_not_of('/'), value.todo.size()) << ". From file: <" << key << ">. Adding date: " << date_time;
         ofs << '\n';
     }
 }
@@ -416,13 +447,13 @@ void CSV::GenerateCSVFile(const std::vector<CSVFile>& csv_files) {
         return;
     }
     
-    // TODO: Rewrite. Now is opening for clear file.
+    // TODO: Rewrite. Now is opening for clear file. Remove hardcode
     std::ofstream ofs("/home/lpdgrl/Project/code/ttmd-cli/.history/history.csv"s, std::ios::trunc);
     ofs.close();
 
     for (const auto& file : csv_files) {
         std::ostringstream oss;
-// /
+
         oss << std::hex << file.crc_file;
         
         std::string crc(oss.str());
@@ -441,8 +472,10 @@ void CSV::GenerateCSVRecord(const std::vector<CSVRecordFile>& csv_record_files) 
     }
 
     for (const auto& file : csv_record_files) {
-        std::string filename(file.file_name.substr(0, file.file_name.find_first_of('.')));
-        // TODO: Rewrite. Now is opening for clear file.
+        size_t idx_comma = file.file_name.find_first_of('.');
+        std::string filename(file.file_name);
+        filename[idx_comma]= '_';
+        // TODO: Rewrite. Now is opening for clear file. Remove hardcode
         std::string path("/home/lpdgrl/Project/code/ttmd-cli/.history/cache_lines/" + filename + ".csv");
         // std::ofstream ofs(path, std::ios::trunc);
         // ofs.close();
@@ -457,7 +490,7 @@ void CSV::GenerateCSVRecord(const std::vector<CSVRecordFile>& csv_record_files) 
 bool CSV::WriteToFile(std::string_view path_to_file, const char* buffer, [[maybe_unused]] size_t length) {
     std::ofstream ofs(path_to_file.data(), std::ios::app);
     
-    if (!ofs.is_open()) {
+    if (!ofs) {
         std::cerr << "Not opened this file: <" << path_to_file << ">" << std::endl;
         return false;
     }
@@ -510,19 +543,16 @@ std::optional<CSVRecordFile> CSV::ReadRecFileFromString(std::string_view csv_fro
     size_t idx_crc = csv_from_string.find_first_of(';', idx_todo + 1);
     
     result.file_name = csv_from_string.substr(0, idx_filename);
-    std::cout << "TEST: filename <" << result.file_name << "> "; 
 
     result.path_to_file = csv_from_string.substr(idx_filename + 1, idx_path_file - (idx_filename + 1));
-    std::cout << "path_to_file <" << result.path_to_file << "> ";
 
     result.todo = csv_from_string.substr(idx_path_file + 1, idx_todo - (idx_path_file + 1));
-    std::cout << "todo <" << result.todo << "> ";
     
     result.crc_line = std::stoul(csv_from_string.substr(idx_todo + 1, csv_from_string.size() - idx_todo - 2).data(), nullptr, 16);
-    std::cout << "crc_line <" << result.crc_line << "> ";
     
     result.line_number = std::stoi(csv_from_string.substr(idx_crc + 1, csv_from_string.size() - idx_crc - 1).data());
-    std::cout << "line_number <" << result.line_number << "> ";
+
+    std::println("TEST: filename: <{}> path to file: <{}> todo record: <{}> crc line: <{}> line number <{}>", result.file_name, result.path_to_file, result.todo, result.crc_line, result.line_number);
 
     return {result};
 }
@@ -530,7 +560,7 @@ std::optional<CSVRecordFile> CSV::ReadRecFileFromString(std::string_view csv_fro
 std::optional<CSVFile> CSV::ReadFile(std::string_view path_to_file) {
     std::ifstream ifs(path_to_file.data(), std::ios::in);
 
-    if (!ifs.is_open()) {
+    if (!ifs) {
         std::cerr << "Not opened this file: <" << path_to_file << ">" << std::endl;
         return std::nullopt;
     }

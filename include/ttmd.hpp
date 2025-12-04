@@ -58,12 +58,16 @@ struct CSVFile {
 std::string ToString(const CSVFile& csv_file);
 std::ostream& operator<<(std::ostream& out, const CSVFile& csv_file);
 
+struct EntryTodo {
+    std::string todo;
+};
+
 class TTMD {
 public:
     TTMD(const TTMD& other) = delete;
     TTMD(TTMD&& other) = delete;
 
-    TTMD(std::string_view path_repo, std::string_view name_dir_hpp, std::string_view name_dir_cpp, std::string_view keyword = "// TODO:");
+    TTMD(std::string_view path_repo, std::string_view name_dir_hpp, std::string_view name_dir_cpp, std::string_view keyword = "TODO:");
 
     void Init() const;
     void Parse();
@@ -76,14 +80,17 @@ private:
     bool ExistsAllFiles(const std::vector<fs::path>& paths) const;
     bool Exists(const std::vector<fs::path>& paths, std::string_view str_out) const;
 
+    void EnQueueDirectoryEntry();
+
     void ReadHistoryFile();
     void ReadCacheLinesFiles();
 
     std::uint32_t ReadFileAndCalcCrc(const fs::path& path) const;
     void UpdateCacheInCsvFile() const;
-    void UpdateCacheInCsvRecordFiles();
+    void UpdateCacheInCsvRecordFiles(const std::vector<CSVRecordFile>& csv_record_files) const;
 
     bool CheckHashFile(std::string_view filename, std::uint32_t crc_file) const;
+    bool IsCheckHashLine(std::uint32_t crc_line) const;
     
     std::uint32_t CalcCRCFile(const char* buffer, size_t length, std::uint32_t) const;
     std::uint32_t CalcCRC32(const char* buffer, size_t length, std::uint32_t crc_value = 0xFFFFFFFF) const;
@@ -98,8 +105,8 @@ private:
 
     unsigned int line_number = 0;
 
-    std::deque<fs::directory_entry> query_files_;
-    std::unordered_map<std::string, std::string> todo_files_;
+    std::deque<fs::directory_entry> queue_pending_files_;
+    std::unordered_map<std::string, EntryTodo> todo_files_;
 
     std::array<std::uint32_t, 256> crc_table_;
 
@@ -110,6 +117,7 @@ private:
     std::unordered_map<std::uint32_t, CSVRecordFile> cache_csv_lines_;
 };
 
+// TODO: Maybe class is does not static?
 class CSV {
 public:
     CSV() = delete;

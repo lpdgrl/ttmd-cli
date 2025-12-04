@@ -9,7 +9,8 @@ int main(int argc, char** argv) {
     // TODO: Parsing args to new function
     else if (argc >= 6) {
         auto result = ParseComandLine(argc, argv);
-
+        
+        // TODO: Organize in structure
         std::string path_dir;
         std::string name_dir_hpp;
         std::string name_dir_cpp;
@@ -30,12 +31,10 @@ int main(int argc, char** argv) {
             std::cout << "Not are -cpp argument!" << std::endl;
             return EXIT_FAILURE;
         }
-
+        // TODO: Hello world
         path_dir = result["-d"];
         name_dir_cpp = result["-cpp"];
         name_dir_hpp = result["-hpp"];
-
-        std::cout << path_dir << " " << name_dir_cpp << " " << name_dir_hpp << std::endl;
 
         if (result.count("-k") > 1) {
             keyword = result["-k"];
@@ -46,7 +45,7 @@ int main(int argc, char** argv) {
         if (!keyword.empty()) { 
             ttmd.SetKeyWordParsed(keyword);
         }
-
+        // TODO: Rename this method of class TTMD
         ttmd.Parse();
     }
     return EXIT_SUCCESS;
