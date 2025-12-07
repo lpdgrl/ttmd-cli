@@ -19,11 +19,11 @@
 using ResultParseCMD = std::unordered_map<std::string, std::string>;
 
 const std::string usage_cmd(R"(Usage ttmd: 
-\n -d: <absolute path to repository> 
-\n -hpp: <name of the directory when are storing .hpp or .h files>
-\n -cpp: <name of the directory when are storing .cpp files
-\n -k: <keyword> for is parsing. Default value is // TODO:
-\n -h: help.)");
+-d: <absolute path to repository> 
+-hpp: <name of the directory when are storing .hpp or .h files>
+-cpp: <name of the directory when are storing .cpp files
+-k: <keyword> for is parsing. Default value is // TODO:
+-h: help.)");
 
 ResultParseCMD ParseComandLine(int argc, char** argv);
 
@@ -64,18 +64,23 @@ struct EntryTodo {
 
 class TTMD {
 public:
-    TTMD(const TTMD& other) = delete;
-    TTMD(TTMD&& other) = delete;
+    TTMD() = delete;
 
-    TTMD(std::string_view path_repo, std::string_view name_dir_hpp, std::string_view name_dir_cpp, std::string_view keyword = "TODO:");
+    TTMD(const TTMD& other) = delete;
+    TTMD& operator=(const TTMD& other) = delete;
+
+    TTMD(TTMD&& other) = delete;
+    TTMD&& operator=(TTMD&& other) = delete;
+
+    TTMD(std::string path_repo, std::string name_dir_hpp, std::string name_dir_cpp, std::string keyword = "TODO:");
 
     void Init() const;
     void Parse();
-    void WriteTODOFile() const;
     void SetKeyWordParsed(std::string_view) noexcept;
 
 private:
     std::string Normalize(const std::string& in_str) const;
+    std::string NormalizeTodo(const std::string& str) const;
     bool ExistsAllDir(const std::vector<fs::path>& paths) const;
     bool ExistsAllFiles(const std::vector<fs::path>& paths) const;
     bool Exists(const std::vector<fs::path>& paths, std::string_view str_out) const;
@@ -84,6 +89,7 @@ private:
 
     void ReadHistoryFile();
     void ReadCacheLinesFiles();
+    void ReadTodoFile(); 
 
     std::uint32_t ReadFileAndCalcCrc(const fs::path& path) const;
     void UpdateCacheInCsvFile() const;
@@ -91,29 +97,31 @@ private:
 
     bool CheckHashFile(std::string_view filename, std::uint32_t crc_file) const;
     bool IsCheckHashLine(std::uint32_t crc_line) const;
+
+    void WriteTODOFile() const;
     
     std::uint32_t CalcCRCFile(const char* buffer, size_t length, std::uint32_t) const;
     std::uint32_t CalcCRC32(const char* buffer, size_t length, std::uint32_t crc_value = 0xFFFFFFFF) const;
     std::uint32_t ReflectValue32Bit(std::uint32_t value, int bits) const;
     void InitCRC32();
 
+private:
     std::string keyword_;
     
     fs::path path_to_repo_;
     fs::path path_to_hpp_;
     fs::path path_to_cpp_;
 
-    unsigned int line_number = 0;
-
     std::deque<fs::directory_entry> queue_pending_files_;
-    std::unordered_map<std::string, EntryTodo> todo_files_;
+    std::unordered_map<std::string, EntryTodo> todo_to_file_;
+    std::unordered_map<int, EntryTodo> todo_from_file_;
 
     std::array<std::uint32_t, 256> crc_table_;
 
     using DeqIterCsvFile = std::deque<CSVFile>::iterator;
     std::deque<CSVFile> cache_csv_file_;
-    std::unordered_map<std::string, DeqIterCsvFile> cache_csv_file_iter_;
 
+    std::unordered_map<std::string, DeqIterCsvFile> cache_csv_file_iter_;
     std::unordered_map<std::uint32_t, CSVRecordFile> cache_csv_lines_;
 };
 
@@ -130,10 +138,9 @@ public:
     
     ~CSV() = delete;
 
-    static void GenerateCSVFile(const std::vector<CSVFile>& csv_files);
-    static void GenerateCSVRecord(const std::vector<CSVRecordFile>& csv_record_files);
+    static void GenerateCSVFile(const fs::path& path, const std::vector<CSVFile>& csv_files);
+    static void GenerateCSVRecord(const fs::path& path, const std::vector<CSVRecordFile>& csv_record_files);
     static bool WriteToFile(std::string_view path_to_file, const char* buffer, size_t length);
-    static std::optional<CSVFile> ReadFile(std::string_view path_to_file);
     static std::optional<CSVFile> ReadFromString(std::string_view csv_from_string);
     static std::optional<CSVRecordFile> ReadRecFileFromString(std::string_view csv_from_string);
 };

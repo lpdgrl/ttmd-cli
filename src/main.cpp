@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
             std::cout << "Not are -cpp argument!" << std::endl;
             return EXIT_FAILURE;
         }
-        // TODO: Hello world
+        
         path_dir = result["-d"];
         name_dir_cpp = result["-cpp"];
         name_dir_hpp = result["-hpp"];
