@@ -1,61 +1,66 @@
-## TTMD-CLI - TODO from source file to TODO.MD
+## TTMD-CLI — Extract TODOs from Source Files into TODO.md
 
-## Для чего TTMD-CLI
+## What is TTMD-CLI?
 
-TTMD-CLI парсит исходники (.hpp или .cpp) и выдергивает комментарии начинающиеся с ключевой фразы и заносит в TODO.MD который лежит в корне репозитория. Если файл TODO.MD не создан, то он будет создан. 
+TTMD-CLI parses source files (.hpp or .cpp) and extracts comments that begin with a specific key phrase, then writes them into a TODO.md file located in the root of the repository.
+If TODO.md does not exist, the tool will create it automatically.
 
-Обычно для TODO в исходниках используют нечто подобное -  "// TODO:". 
+Typically, TODO comments look like this: // TODO:.
 
-## Как собрать и запустить
+## How to Build and Run
 
-Клонируем репозиторий:
+Clone the repository:
 ```shell
 git clone https://github.com/lpdgrl/ttmd-cli.git
 ```
 
-Выполняем сборку в корне репозитория:
+Build the project in the repository root:
 ```shell
 mkdir build && cd build
 cmake .. -G Ninja
 cmake --build . 
 ```
 
-Описание ключей для запуска (в угловых скобочках пример. Их вводить не нужно): 
+Command-Line Options
 ```shell
--d - указываем полный путь до репозитоия который будем парсить. 
-Пример: -d <$HOME/Project/test_repo/>
+-d — specify the full path to the repository you want to parse.
+Example: -d <$HOME/Project/test_repo/>
 
--hpp - указываем название директории, где хранятся файлы с расширением .hpp\.h 
-Пример: -hpp <include>
+-hpp — specify the directory name containing .hpp or .h files.
+Example: -hpp <include>
 
--cpp - указываем название директории, где хранятся файлы с расширением .cpp\.cxx 
-Пример: -cpp <src>
+-cpp — specify the directory name containing .cpp or .cxx files.
+Example: -cpp <src>
 
--k - указываем, если нужна альтернативная ключевая фраза для парсинга. 
-Пример: -k <"// TODO ">
+-k — specify an alternative key phrase to search for TODO comments. 
+Example: -k <"// TODO ">
 ```
 
-Пример запуска с ключевой фразой по умолчанию:
+Example Usage (with default key phrase)
 ```shell
     $HOME/Project/ttmd/build/ttmd-cli -d $HOME/Project/ttmd/ -hpp include -cpp src
     or 
     ./ttmd-cli -d $HOME/Project/ttmd/ -hpp include -cpp src
 ```
 
-Пример запуска с альтернативной ключевой фразой:
+Example Usage (with custom key phrase)
 ```shell
     $HOME/Project/ttmd/build/ttmd-cli -d $HOME/Project/ttmd/ -hpp include -cpp src -k "// todo: "
     or
     ./ttmd-cli -d $HOME/Project/ttmd/ -hpp include -cpp src -k "// todo: "
 ```
 
-##  Сообщить о проблеме
-Проект пока в сыром состоянии. Могут быть баги или ошибки. Работоспособность на Windows или MacOS не проверялась.
+##  Reporting Issues
 
-Если вы нашли баг или хотите предложить улучшение — пожалуйста, создайте Issue:
+The project is still in an early stage. Bugs and errors may occur.
+Windows and macOS support has not been tested.
+
+If you find a bug or want to suggest an improvement, please open an issue:
 https://github.com/lpdgrl/ttmd-cli/issues
 
-## ✉️ Email
-По всем вопросам и багам: **leopard.grellii@gmail.com**
+## ✉️ Contact
+For any questions or bug reports: **leopard.grellii@gmail.com**
 
-[TODO проекта](TODO.MD)
+[**Telegram**](https://t.me/leopardgrelli)
+
+[Project TODO](TODO.MD)
